@@ -9,7 +9,7 @@ No API key required. SEC only asks that you set a descriptive User-Agent
 Docs: https://www.sec.gov/search-filings/edgar-application-programming-interfaces
 """
 
-import reques ts
+import requests
 import time
 
 BASE_HEADERS = {
