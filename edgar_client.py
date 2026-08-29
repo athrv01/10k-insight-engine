@@ -57,20 +57,74 @@ def extract_annual_series(facts_json: dict, us_gaap_tag: str) -> dict:
     Extract a clean {fiscal_year: value} series for one US-GAAP concept
     (e.g. 'Assets', 'Liabilities', 'Revenues', 'NetIncomeLoss') from the
     raw company-facts payload, keeping only annual (10-K, full-year) data.
+
+    IMPORTANT — why we don't group by SEC's own 'fy' field:
+    SEC's provided 'fy' label is not reliably tied to the period a fact
+    actually covers. When a prior year's figure is re-disclosed as a
+    comparative inside a LATER 10-K, SEC sometimes tags it with a 'fy'
+    that doesn't match its real 'end' date — and different concepts can
+    be mislabeled by different amounts (empirically, duration items like
+    Revenue were seen shifted +2 years, while instant items like Assets
+    were shifted +1 year, in the same company's data). Grouping by the
+    provided 'fy' silently mixes values from different real fiscal years
+    into ratios, producing implausible swings (e.g. a ratio "jumping"
+    600%+ in one year because its numerator and denominator quietly came
+    from different years).
+
+    The fix: derive the fiscal year directly from each fact's own 'end'
+    date instead of trusting SEC's label. The end date is unambiguous and
+    can't be mislabeled, and for the vast majority of US filers (any
+    fiscal year-end month) the calendar year of the period-end date
+    matches how that fiscal year is actually named.
+
+    Two additional correctness checks:
+    1. Stub/partial periods: duration-type concepts should span ~12
+       months. A fiscal year-end change can produce a shorter period
+       that's technically tagged 'FY' but would distort ratios if
+       treated as a full year — we reject anything not roughly annual.
+    2. Duplicates for the same real fiscal year (e.g. a value re-stated
+       in a later filing): we keep the EARLIEST-filed entry, i.e. the
+       figure as originally reported in that year's own 10-K.
     """
     try:
         units = facts_json["facts"]["us-gaap"][us_gaap_tag]["units"]["USD"]
     except KeyError:
         return {}
 
-    series = {}
+    from datetime import date
+
+    candidates = {}  # real_fy (derived from end date) -> list of (filed_date, val)
     for item in units:
-        # Annual figures: 'fp' == 'FY' and form is a 10-K
-        if item.get("fp") == "FY" and item.get("form") == "10-K":
-            fy = item.get("fy")
-            if fy is not None:
-                # Keep the most recently filed value if duplicates exist
-                series[fy] = item["val"]
+        if item.get("fp") != "FY" or item.get("form") != "10-K":
+            continue
+
+        end = item.get("end")
+        if not end:
+            continue
+        try:
+            end_date = date.fromisoformat(end)
+        except ValueError:
+            continue
+
+        start = item.get("start")
+        if start:
+            try:
+                span_days = (end_date - date.fromisoformat(start)).days
+            except ValueError:
+                span_days = None
+            if span_days is not None and not (350 <= span_days <= 380):
+                continue  # stub/partial period — skip it
+
+        real_fy = end_date.year
+        filed = item.get("filed", "")
+        candidates.setdefault(real_fy, []).append((filed, item["val"]))
+
+    series = {}
+    for fy, entries in candidates.items():
+        # Earliest-filed entry = the value as originally reported in that
+        # fiscal year's own 10-K, not a later comparative restatement.
+        entries.sort(key=lambda pair: pair[0])
+        series[fy] = entries[0][1]
 
     return dict(sorted(series.items()))
 

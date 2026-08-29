@@ -53,7 +53,7 @@ def generate_narrative(company_name: str, ratio_series: dict, flags: dict) -> st
     prompt = build_prompt(company_name, ratio_series, flags)
 
     response = client.messages.create(
-        model="claude-sonnet-5",
+        model="claude-3-5-sonnet-latest",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )

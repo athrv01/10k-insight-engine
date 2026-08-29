@@ -68,7 +68,7 @@ def compute_ratios(data: dict) -> dict:
             # --- Liquidity ---
             "current_ratio": _safe_div(current_assets, current_liabilities),
             "quick_ratio": _safe_div(
-                (current_assets - inventory) if (current_assets and inventory is not None) else current_assets,
+                current_assets - (inventory or 0) if current_assets is not None else None,
                 current_liabilities,
             ),
 
