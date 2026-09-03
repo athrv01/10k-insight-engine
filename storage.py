@@ -41,6 +41,14 @@ def init_db():
         )
     """)
     conn.commit()
+    # Migration: add verdict_reasons if this table was created before it existed.
+    # SQLite has no "ADD COLUMN IF NOT EXISTS", so we try and ignore the
+    # error if the column is already there.
+    try:
+        conn.execute("ALTER TABLE saved_analyses ADD COLUMN verdict_reasons TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     conn.close()
 
 
@@ -50,8 +58,8 @@ def save_analysis(user_label, ticker, exchange, company_name, verdict, price_at_
     conn.execute(
         """INSERT INTO saved_analyses
            (user_label, ticker, exchange, company_name, verdict_label, verdict_score,
-            price_at_save, saved_at, ratio_snapshot)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            price_at_save, saved_at, ratio_snapshot, verdict_reasons)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             user_label.strip().lower(),
             ticker.upper(),
@@ -62,6 +70,7 @@ def save_analysis(user_label, ticker, exchange, company_name, verdict, price_at_
             price_at_save,
             datetime.now(timezone.utc).isoformat(),
             json.dumps(ratio_series),
+            json.dumps(verdict.get("reasons", [])),
         ),
     )
     conn.commit()

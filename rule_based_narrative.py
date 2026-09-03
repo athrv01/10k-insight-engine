@@ -113,7 +113,14 @@ def _classify_leverage(ratio_series, latest_fy):
             parts.append(f"Debt-to-equity is elevated at {d_to_e}, indicating meaningful reliance on debt financing.")
 
     if coverage is not None:
-        if coverage >= INTEREST_COVERAGE_THRESHOLDS["strong"]:
+        if coverage < 0:
+            parts.append(
+                f"Interest coverage is negative ({coverage}) — this means operating income itself is "
+                f"negative, not just thin coverage. The company isn't earning enough from operations "
+                f"alone to cover interest, separate from whether it's covering it some other way (cash "
+                f"reserves, new financing, etc.)."
+            )
+        elif coverage >= INTEREST_COVERAGE_THRESHOLDS["strong"]:
             parts.append(f"Interest coverage of {coverage} suggests operating income comfortably covers interest expense.")
         elif coverage >= INTEREST_COVERAGE_THRESHOLDS["adequate"]:
             parts.append(f"Interest coverage of {coverage} is adequate but not generous.")
@@ -170,13 +177,20 @@ def _build_overview(company_name, ratio_series):
     return overview
 
 
-def _build_watch_items(flags, max_items=4):
+def _build_watch_items(flags, has_multi_year_data=True, max_items=4):
     flat = []
     for fy, items in flags.items():
         for name, pct in items:
             flat.append((fy, name, pct))
 
     if not flat:
+        if not has_multi_year_data:
+            return (
+                "No year-over-year comparison is possible yet — only one fiscal year of filings "
+                "exists for this company (common for a recent IPO or a newly-covered small-cap). "
+                "The ratios above reflect a single snapshot, not a trend, so there's nothing (yet) "
+                "to flag as having 'moved' — that's different from everything being confirmed stable."
+            )
         return "No ratios moved sharply enough year-over-year to flag for further review at the configured threshold."
 
     # Prioritize the largest moves
@@ -206,12 +220,20 @@ def generate_narrative(company_name: str, ratio_series: dict, flags: dict) -> st
         return f"No ratio data was available for {company_name}."
 
     latest_fy = years[-1]
+    has_multi_year_data = len(years) >= 2
 
     overview = _build_overview(company_name, ratio_series)
+    if not has_multi_year_data:
+        overview += (
+            f" Note: only FY{latest_fy} is on file for this company — likely a recent IPO or a "
+            f"company with limited filing history. Everything below is a single-year snapshot, not "
+            f"a trend; treat it as a starting baseline rather than a full picture."
+        )
+
     liquidity = _classify_liquidity(ratio_series, latest_fy)
     leverage = _classify_leverage(ratio_series, latest_fy)
     profitability = _classify_profitability(ratio_series)
-    watch_items = _build_watch_items(flags)
+    watch_items = _build_watch_items(flags, has_multi_year_data)
 
     return f"""{overview}
 
